@@ -1,0 +1,62 @@
+% ==============================================================================
+\section{Related Work}
+\label{sec:related_work}
+% ==============================================================================
+
+Relevant literature spans two complementary areas: AI technologies for inventory-aware and knowledge-enhanced recipe recommendation, and domain know-how on date labeling and household food waste behavior.
+
+\subsection{AI Technologies for Food Management and Recommendation}
+
+Kubatbek kyzy and Shambetova introduced \textit{MealMind}, combining computer-vision ingredient recognition, usage prioritization, and LLM-based meal planning to reduce decision fatigue and household waste \cite{ref3}. While MealMind demonstrates an end-to-end vision-to-planner direction, its evaluation remains at the preprint prototype stage.
+
+Mohbat and Zaki proposed \textit{KERL} at ACL 2025, pairing recipe knowledge graphs with LLMs for personalized recommendation and nutritional question answering \cite{ref4}. KERL validates knowledge-augmented generation, yet does not manage a persistent, transaction-safe household inventory ledger.
+
+Bagozi et al. developed an ontology-enhanced RAG framework grounded in the FoCOSA food ontology for personalized and sustainable food advice \cite{ref5}, highlighting the importance of structured domain knowledge for factual accuracy and hallucination control. Kurniawan et al. investigated visual ingredient recognition and quantity estimation for recipe matching \cite{ref6}, motivating explicit quantity verification before recommendation. Unlike vision-first pipelines \cite{ref3}, \cite{ref6}, Food Guardian targets manually maintained SQLite inventories and emphasizes deterministic Python recalculation of shortages, unit compatibility, and safety pre-screening with tool-trace auditing.
+
+\subsection{Domain Know-How on Date Labels and Food Waste Behavior}
+
+Empirical and modeling studies explain why purely technical recipe generators fall short in real households. van Rooijen et al. modeled rolling-horizon meal planning under shopping-frequency and demand uncertainty \cite{ref7}, showing that inventory-first recipe selection and adaptive re-planning reduce simulated waste.
+
+Llagas et al. reviewed consumer perceptions of date labeling and storage advice \cite{ref8}, finding that inconsistent label terminology confuses disposal decisions---consistent with U.S. FDA \cite{ref2} and USDA FSIS \cite{ref11} guidance. Cliceri et al. surveyed consumers across six European countries \cite{ref9}, supporting UI designs that present explicit label types and rationale. Widayat et al. synthesized 132 behavioral studies \cite{ref10}, showing that waste arises from interacting purchasing, storage, and routine factors rather than expiry dates alone. Food Guardian therefore pairs date reminders with explicit consumption and waste event logs.
+
+\subsection{Comparative Summary and Research Gap}
+
+Tables~\ref{tab:lit_ai} and~\ref{tab:lit_domain} compare the reviewed AI and domain studies. Existing evaluations examine isolated components---image detection, recipe QA, ontology grounding, simulations, or surveys. A verifiable \textbf{research gap} remains at the system-integration level: given target servings and a persistent household inventory with potentially incomplete date or unit metadata, how can an AI agent couple inventory queries, conservative safety pre-screening, deterministic shortage math, and traceable knowledge citations into a unified, testable workflow? Food Guardian targets this integration gap.
+
+\begin{table*}[t]
+\centering
+\caption{Summary of Related AI Technology Research}
+\label{tab:lit_ai}
+\renewcommand{\arraystretch}{1.22}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{2.2cm}p{4.9cm}p{4.2cm}p{5.1cm}}
+\toprule
+\textbf{Study} & \textbf{Problem and Method} & \textbf{Data and Evidence} & \textbf{Findings and Applicability Scope} \\
+\midrule
+MealMind \cite{ref3} & Vision inventory capture, prioritization, and LLM meal planning & Prototype and preliminary tests (preprint) & Demonstrates integration; real-world waste reduction unverified \\
+KERL \cite{ref4} & Recipe knowledge graph paired with LLM recommendation & Benchmark evaluation on recipe and nutrition QA & Validates knowledge-augmented advice; lacks stock ledger \\
+Bagozi et al. \cite{ref5} & FoCOSA ontology-enhanced RAG for sustainable food advice & Ontology-grounded response and hallucination checks & Supports citation auditing; no transactional inventory math \\
+Kurniawan et al. \cite{ref6} & Ingredient image recognition, quantity estimation, and matching & Experimental evaluation on food ingredient imagery & Highlights quantified ingredients; focused on vision matching \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Summary of Related Domain Know-How Research}
+\label{tab:lit_domain}
+\renewcommand{\arraystretch}{1.22}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{2.2cm}p{4.9cm}p{4.2cm}p{5.1cm}}
+\toprule
+\textbf{Study} & \textbf{Problem and Method} & \textbf{Data and Evidence} & \textbf{Findings and Applicability Scope} \\
+\midrule
+van Rooijen et al. \cite{ref7} & Rolling-horizon model of shopping frequency and demand uncertainty & Household meal-planning simulation & Supports inventory-first adaptive planning; depends on model assumptions \\
+Llagas et al. \cite{ref8} & Date labeling, storage advice, and consumer understanding & Systematic scoping review & Alerts should clarify label semantics and storage context \\
+Cliceri et al. \cite{ref9} & Consumer date-label patterns and household waste & Six-country European consumer survey & Supports transparent label display; relies on self-reported data \\
+Widayat et al. \cite{ref10} & Behavioral drivers of household food waste dynamics & Systematic review of 132 behavioral studies & Supports logging handling context; requires field trials for impact \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}

@@ -1,0 +1,48 @@
+% ==============================================================================
+% IEEE Conference Paper Manuscript (ICEIB Style: https://www.iceib.asia/)
+% Target Format: IEEEtran Conference Proceedings (4-8 pages, English)
+% Modular Entry Point (rename to main.tex in Overleaf if needed)
+% ==============================================================================
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[hyphens]{url}
+\def\UrlBreaks{\do\/\do-\do_\do.}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Food Guardian: A Hybrid AI Agent Integrating Domain Knowledge and Data Analytics for Household Inventory Management and Food Waste Reduction}
+
+% TODO: Verify exact romanized author names, department/university affiliation, and institutional email addresses before submission.
+\author{
+\IEEEauthorblockN{Chen-Lun Tai\IEEEauthorrefmark{1}, Yi-Fan Chen\IEEEauthorrefmark{1}, Wei-Hong Cho\IEEEauthorrefmark{1}, Jie Peng\IEEEauthorrefmark{1}, and Cheng-Ting Ko\IEEEauthorrefmark{1}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}Department of Computer Science and Engineering (Affiliations to be completed)\\
+Taiwan\\
+Email: \{7115056012, 7115056046, 7115056106, 7115056187, 7115056211\}@example.edu}
+}
+
+\maketitle
+
+\input{000-Abstract}
+\input{001-Introduction}
+\input{"002-Related Work"}
+\input{"003-Proposed Design"}
+\input{004-Experiment}
+\input{005-Conclusion}
+\input{006-Reference}
+
+\end{document}

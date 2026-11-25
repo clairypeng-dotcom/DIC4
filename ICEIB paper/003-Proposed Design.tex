@@ -1,0 +1,217 @@
+% ==============================================================================
+\section{Proposed Design}
+\label{sec:proposed_design}
+% ==============================================================================
+
+\subsection{Design Mindsets and Architectural Trade-Offs}
+
+Grounded in FDA/USDA food safety guidance \cite{ref2}, \cite{ref11} and household waste literature, Food Guardian follows five core design mindsets: (1)~\textit{Food Safety First} (never sacrifice safety for waste reduction; flag incomplete storage context for manual review \cite{ref8}), (2)~\textit{Inventory Visibility} (ground LLM reasoning in live SQLite queries \cite{ref7}), (3)~\textit{Inventory-First Meal Planning} (score recipes against existing stock and urgency), (4)~\textit{Data-Driven Decision Making} (log granular usage and disposal events \cite{ref10}), and (5)~\textit{Personalized and Adaptive Planning} (recalculate portions dynamically as servings or stock change \cite{ref7}).
+
+These mindsets resolve three key engineering trade-offs:
+\begin{itemize}
+    \item \textbf{Date Sorting vs. Context-Aware Safety:} Calendar dates drive reminder tiers, while a conservative rule validator separates \textit{Use By} from \textit{Best Before} labels and flags missing context without claiming sensor-level spoilage detection.
+    \item \textbf{Fixed Menus vs. Dynamic Re-Planning:} Rather than locking users into rigid multi-day menus, the agent recomputes feasibility on demand from current SQLite state when headcount or stock changes \cite{ref7}.
+    \item \textbf{Pure Rules vs. Pure LLM:} A \textit{Hybrid AI Agent} delegates natural language parsing and tool orchestration to the LLM while keeping arithmetic, unit conversion, and safety filtering strictly deterministic in Python \cite{ref4}, \cite{ref5}.
+\end{itemize}
+
+\subsection{System Overview and Component Architecture}
+
+Food Guardian implements a nine-stage closed-loop workflow spanning: (1)~User/Application Scenario, (2)~Input \& Streamlit UI, (3)~Planner \& Reasoning Agent, (4)~Data Acquisition/Retrieval, (5)~Analytics Engine, (6)~Domain Knowledge Integration, (7)~Decision \& Validation, (8)~Output \& Interaction, and (9)~Feedback \& History. While the initial proposal planned only JSON knowledge lookup, the refactored architecture adds a local ChromaDB vector RAG index while keeping deterministic Python safety rules independent of retrieved text.
+
+Figure~\ref{fig:architecture} illustrates the system architecture, and Table~\ref{tab:components} summarizes module responsibilities and verification status. In normal operation, user queries enter the Streamlit Chat Page and invoke the LangGraph workflow (\texttt{gemini\_graph.py}). Gemini calls read-only tools (\texttt{recommend\_recipes\_\allowbreak for\_servings\_tool}, \texttt{validate\_inventory\_\allowbreak safety\_tool}, inventory lookup, and knowledge retrieval) and synthesizes explanations grounded in returned quantities, deficits, and source attributes. When \texttt{GOOGLE\_API\_KEY} is absent, users can manually switch to local rule mode; failed API calls never silently claim local fallback.
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.1cm,
+    box/.style={rectangle, draw=black!80, rounded corners=3pt, minimum width=2.4cm, minimum height=0.8cm, align=center, font=\footnotesize, fill=white, thick},
+    service/.style={rectangle, draw=blue!70!black, rounded corners=3pt, minimum width=2.8cm, minimum height=0.8cm, align=center, font=\footnotesize, fill=blue!5, thick},
+    agent/.style={rectangle, draw=teal!70!black, rounded corners=3pt, minimum width=2.8cm, minimum height=0.8cm, align=center, font=\footnotesize, fill=teal!5, thick},
+    store/.style={cylinder, shape border rotate=90, aspect=0.22, draw=orange!70!black, minimum width=1.9cm, minimum height=0.9cm, align=center, font=\footnotesize, fill=orange!6, thick},
+    arrow/.style={-{Stealth[length=2.2mm]}, thick, draw=black!75},
+    biarrow/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]}, thick, draw=black!75},
+    dasharrow/.style={-{Stealth[length=2.2mm]}, thick, dashed, draw=black!65}
+]
+\node[box, minimum width=1.9cm] (user) {(1) Household\\User};
+\node[box, right=0.75cm of user, minimum width=2.3cm] (ui) {(2, 8) Streamlit UI\\(\texttt{app.py})};
+
+\node[service, above right=0.65cm and 0.85cm of ui] (inv_page) {(9) Inventory,\\Reminders \& Logs};
+\node[agent, right=0.85cm of ui] (chat_page) {AI Agent\\Chat Page};
+\node[service, below right=0.65cm and 0.85cm of ui] (ana_page) {Usage \& Waste\\Analytics Page};
+
+\node[service, right=0.95cm of inv_page] (inv_svc) {(4) InventoryService /\\ReminderService};
+\node[agent, right=0.95cm of chat_page] (graph) {(3) Gemini + LangGraph\\(\& Local Rule Mode)};
+\node[service, right=0.95cm of ana_page] (ana_svc) {(5) AnalyticsService\\(Pandas / Plotly)};
+
+\node[agent, right=0.95cm of graph, yshift=1.45cm] (t_inv) {(4) Inventory \&\\Expiry Tools};
+\node[agent, right=0.95cm of graph, yshift=0.48cm] (t_port) {(5, 7) Portion \&\\Recipe Service};
+\node[agent, right=0.95cm of graph, yshift=-0.48cm] (t_safe) {(7) Safety Validator\\(\texttt{safety\_service})};
+\node[agent, right=0.95cm of graph, yshift=-1.45cm] (t_rag) {(6) Knowledge Tool\\\& ChromaDB RAG};
+
+\node[store, right=1.05cm of t_inv, yshift=0.25cm] (sqlite) {SQLite\\Database};
+\node[store, right=1.05cm of t_port, yshift=-0.1cm] (recipes) {Recipes\\JSON};
+\node[store, right=1.05cm of t_rag, yshift=0.35cm] (kjson) {Food Know.\\JSON};
+\node[store, right=1.05cm of t_rag, yshift=-0.7cm] (chroma) {ChromaDB\\Index};
+
+\draw[biarrow] (user) -- (ui);
+\draw[arrow] (ui) |- (inv_page);
+\draw[biarrow] (ui) -- (chat_page);
+\draw[arrow] (ui) |- (ana_page);
+
+\draw[biarrow] (inv_page) -- (inv_svc);
+\draw[biarrow] (chat_page) -- (graph);
+\draw[biarrow] (ana_page) -- (ana_svc);
+
+\draw[arrow] (graph) |- (t_inv);
+\draw[arrow] (graph) -- (t_port);
+\draw[arrow] (graph) -- (t_safe);
+\draw[arrow] (graph) |- (t_rag);
+
+\draw[biarrow] (inv_svc.north) -- ++(0,0.65) -| (sqlite.north);
+\draw[arrow] (ana_svc.south) -- ++(0,-0.6) -| ([xshift=0.55cm]chroma.east) |- (sqlite.east);
+\draw[arrow] (t_inv) -- (sqlite);
+\draw[arrow] (t_safe.east) -| ([xshift=-0.45cm]sqlite.west) -- (sqlite.west);
+\draw[arrow] (t_port) -- (recipes);
+\draw[arrow] (t_port.north east) -- (sqlite.south west);
+\draw[arrow] (t_rag.east) -- (kjson.west);
+\draw[arrow] (t_rag.south east) -- (chroma.west);
+\draw[dasharrow] (inv_page.north) -- ++(0,0.35) -| node[pos=0.25, above, font=\scriptsize] {Updated State Feedback} (ui.north);
+\end{tikzpicture}%
+}
+\caption{Food Guardian hybrid architecture mapping stages (1)--(9) onto Streamlit UI, Gemini/LangGraph orchestration, deterministic Python services, and SQLite/JSON/ChromaDB stores.}
+\label{fig:architecture}
+\end{figure*}
+
+\begin{table*}[t]
+\centering
+\caption{System Components, Responsibilities, and Verification Status}
+\label{tab:components}
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{4.3cm}p{7.0cm}p{5.3cm}}
+\toprule
+\textbf{Module / File Path} & \textbf{Core Responsibility} & \textbf{Current Verification Status} \\
+\midrule
+\texttt{src/ui/app.py}, \texttt{components/} & Streamlit navigation, inventory CRUD, reminders, AI chat, analytics views & Operational records logged; manual UI acceptance pending \\
+\texttt{src/database/\allowbreak db\_manager.py}, \texttt{schema.sql} & SQLite connection, schema initialization, atomic transactions & Implemented in core database layer \\
+\texttt{inventory\_service.py}, \texttt{reminder\_service.py} & Inventory CRUD, usage/waste deduction, calendar-day date reminders & Implemented; verified via 40 unit tests \\
+\texttt{gemini\_graph.py}, \texttt{gemini\_mode.py} & Gemini + LangGraph orchestration and tool-call trace capture & Verified on 3 live non-RAG multi-tool cases \\
+\texttt{agent\_core.py} & Local rule-based fallback mode when API key is absent & Tested offline; manual selection only \\
+\texttt{portion\_service.py}, \texttt{recipe\_tools.py} & Serving scaling, unit normalization, deficit math, dual-mode ranking & Calculation and tool traces verified \\
+\texttt{safety\_service.py} & Conservative safety pre-screening over SQLite dates and risk rules & Tool return values verified on SQLite data \\
+\texttt{knowledge\_service.py}, \texttt{rag\_service.py} & JSON lookup and ChromaDB (Sentence Transformers) RAG & Index built; Live RAG (\texttt{MUL-02}, \texttt{MUL-04}) pending \\
+\texttt{analytics\_service.py} & Unit-consistent aggregation of usage/waste events via Pandas/Plotly & Interface implemented; E2E dashboard check pending \\
+\texttt{evaluation/\allowbreak run\_evaluation.py} & Fixed 30-case suite, retry handler, error taxonomy, CSV reports & Offline (25/30) and Live subset (3/3) executed \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\subsection{Data Model and Lifecycle Management}
+
+SQLite persists state across three tables defined in \texttt{schema.sql}:
+\begin{itemize}
+    \item \texttt{inventory\_items}: Records \texttt{id}, \texttt{name}, \texttt{category}, \texttt{quantity} (REAL), \texttt{unit}, \texttt{purchase\_date}, optional \texttt{expiry\_date}, \texttt{date\_label\_type} (\texttt{use\_by}, \texttt{best\_before}, or \texttt{NULL}), optional \texttt{opened\_date}, \texttt{storage\_location}, and \texttt{status} (\texttt{active}, \texttt{consumed}, \texttt{wasted}).
+    \item \texttt{consumption\_\allowbreak waste\_logs}: Stores immutable event snapshots (\texttt{item\_id}, \texttt{item\_name}, \texttt{category}, \texttt{quantity}, \texttt{unit}, \texttt{action\_type}, \texttt{reason}, \texttt{log\_date}). Deleting an erroneous entry sets \texttt{item\_id} to \texttt{NULL} while retaining snapshots, separating entry mistakes from actual waste.
+    \item \texttt{recipe\_\allowbreak recommendations}: Reserved recommendation table; current matching runs dynamically over demonstration JSON (\texttt{data/knowledge\_base/\allowbreak recipes.sample.json}).
+\end{itemize}
+Atomic SQLite transactions reject overdraft deductions. Partially used items remain \texttt{active} until \texttt{quantity} reaches zero, so analytics must read \texttt{consumption\_\allowbreak waste\_logs} rather than final item status.
+
+\subsection{Core Algorithms and Mathematical Formulations}
+
+\subsubsection{Calendar-Day Date Reminders}
+For an active item with threshold $t \ge 0$ and calendar-day difference $d = \text{expiry\_date} - \text{today}$, reminder state is partitioned as:
+\begin{equation}
+\begin{gathered}
+\text{ReminderState}(d) = \hfill \\
+\begin{cases}
+\texttt{no\_date}, & \text{if } \texttt{expiry\_date} = \text{NULL}, \\
+\texttt{passed\_date}, & \text{if } d < 0, \\
+\texttt{expiring\_soon}, & \text{if } 0 \le d \le t, \\
+\texttt{normal}, & \text{otherwise}.
+\end{cases}
+\end{gathered}
+\end{equation}
+
+\subsubsection{Serving-Scaled Quantity Validation}
+Given recipe $r$ with base servings $S_{\text{base}}(r) > 0$, target servings $S_{\text{target}} > 0$, and base ingredient requirement $q_{\text{base}}(r, i)$, required quantity and normalized shortage are:
+\begin{equation}
+q_{\text{req}}(r, i) = q_{\text{base}}(r, i) \times \frac{S_{\text{target}}}{S_{\text{base}}(r)},
+\end{equation}
+\begin{equation}
+q_{\text{miss}}(r, i) = \max\!\left(0,\, q_{\text{req}}(r, i) - q_{\text{avail}}(i)\right),
+\end{equation}
+across compatible units (e.g., $\text{g} \leftrightarrow \text{kg}$, $\text{mL} \leftrightarrow \text{L}$). Unconvertible units (e.g., \texttt{other}, bunch, pack) remain \texttt{unknown} and require manual confirmation.
+
+\subsubsection{Safety Pre-Screening and Dual-Mode Ranking}
+\texttt{safety\_service.py} classifies active SQLite batches as \texttt{blocked} (e.g., past \texttt{use\_by}), \texttt{review} (e.g., past \texttt{best\_before} or incomplete metadata), or \texttt{eligible} (no known exclusion rule triggered, not a safety certification). Both \texttt{blocked} and \texttt{review} batches are excluded from automatic stock counts. Feasible recipes are ranked using \texttt{quantity\_\allowbreak coverage} and \texttt{urgency\_score} under \texttt{ready\_now} (full compatible stock prioritized), \texttt{expiry\_first} (urgent eligible stock prioritized while flagging any shortage), or backward-compatible \texttt{balanced} mode.
+
+\subsubsection{Unit-Consistent Waste Analytics}
+To avoid cross-unit summation, \texttt{analytics\_service.py} groups logs by period, category, and compatible unit $u$, computing waste ratio only when $C_u + W_u > 0$:
+\begin{equation}
+\text{WasteRatio}_u = \frac{W_u}{C_u + W_u} \times 100\%.
+\end{equation}
+
+\subsubsection{Hybrid Agent Execution Flow}
+Algorithm~\ref{alg:food_guardian} and Fig.~\ref{fig:flowchart} formalize the execution pipeline across three invariant gates: incomplete-data safety screening, deterministic post-LLM validation, and confirmation-gated ledger updates.
+
+\begin{algorithm}[t]
+\caption{Food Guardian Hybrid AI Agent Execution}
+\label{alg:food_guardian}
+\begin{algorithmic}[1]
+\REQUIRE Query $Q$, SQLite inventory $I$, preferences $P$, servings $S_{\text{target}}$, mode $M \in \{\texttt{ready\_now}, \texttt{expiry\_first}, \texttt{balanced}\}$
+\ENSURE Grounded recommendation $R$ with deficits and citations
+\STATE Parse $(S_{\text{target}}, M, P)$ from $Q$ and select read-only tools
+\STATE Retrieve active inventory $I_{\text{active}}$ and candidate recipes $D$
+\IF{critical metadata (unit, label, servings) is missing}
+    \STATE Prompt user or flag uncertain fields explicitly
+\ENDIF
+\STATE Retrieve preservation knowledge $K$ (JSON / ChromaDB) with sources
+\STATE Classify batches into $\{\texttt{eligible}, \texttt{review}, \texttt{blocked}\}$ and filter to $I_{\text{usable}}$
+\FOR{each candidate recipe $r \in D$}
+    \STATE Scale $q_{\text{req}}(r, i)$ to $S_{\text{target}}$; normalize units and compute $q_{\text{miss}}(r, i)$
+    \STATE Preserve incompatible units as \texttt{unknown}; evaluate $P$, \texttt{quantity\_\allowbreak coverage}, \texttt{urgency\_score}
+    \STATE Reject $r$ if hard constraints are violated
+\ENDFOR
+\STATE Rank feasible recipes by $M$ (or explain stock/safety blockers if none)
+\STATE Present read-only recommendation $R$ with deficits, disclaimers, and citations
+\IF{user confirms actual cooking usage or disposal}
+    \STATE Update $I$ and append \texttt{consumption\_\allowbreak waste\_logs} atomically
+\ENDIF
+\RETURN $R$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{figure}[t]
+\centering
+\resizebox{0.94\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.42cm,
+    proc/.style={rectangle, rounded corners=2pt, draw=black!80, fill=white, align=center, font=\scriptsize, minimum width=4.6cm, minimum height=0.52cm, thick},
+    gate/.style={rectangle, rounded corners=2pt, draw=red!70!black, fill=red!5, align=center, font=\scriptsize, minimum width=4.6cm, minimum height=0.52cm, thick},
+    dec/.style={diamond, aspect=2.6, draw=blue!70!black, fill=blue!5, align=center, font=\scriptsize, inner sep=1pt, thick},
+    arrow/.style={-{Stealth[length=2mm]}, thick, draw=black!75}
+]
+\node[proc] (q) {User Query $Q$ + Servings $S_{\text{target}}$ + Mode $M$};
+\node[proc, below=of q] (intent) {LLM / LangGraph Intent \& Tool Selection};
+\node[gate, below=of intent] (g1) {\textbf{Gate 1: Data Completeness \& Safety}\\Check missing fields; filter \texttt{blocked}/\texttt{review}};
+\node[proc, below=of g1] (calc) {Python \texttt{portion\_service}: Scale $q_{\text{req}}$,\\Normalize Units, Compute $q_{\text{miss}}$};
+\node[gate, below=of calc] (g2) {\textbf{Gate 2: Deterministic Validation}\\Preserve \texttt{unknown} units; rank by $M$};
+\node[proc, below=of g2] (out) {Present Traceable Recommendation $R$\\(Read-Only Stock, Deficits, Citations)};
+\node[dec, below=0.45cm of out] (conf) {User Confirms\\Actual Usage?};
+\node[gate, below=0.45cm of conf] (g3) {\textbf{Gate 3: Atomic Ledger Update}\\SQLite Transaction + Event Log};
+
+\draw[arrow] (q) -- (intent);
+\draw[arrow] (intent) -- (g1);
+\draw[arrow] (g1) -- (calc);
+\draw[arrow] (calc) -- (g2);
+\draw[arrow] (g2) -- (out);
+\draw[arrow] (out) -- (conf);
+\draw[arrow] (conf) -- node[right, font=\scriptsize] {Yes} (g3);
+\draw[arrow] (conf.east) -- ++(0.9,0) |- node[pos=0.25, right, font=\scriptsize] {No (Read-only)} (q.east);
+\end{tikzpicture}%
+}
+\caption{Execution and verification flow enforcing three core invariants: safety pre-screening, deterministic validation, and confirmation-gated updates.}
+\label{fig:flowchart}
+\end{figure}

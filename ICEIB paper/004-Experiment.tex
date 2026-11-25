@@ -1,0 +1,45 @@
+% ==============================================================================
+\section{Experiment}
+\label{sec:experiment}
+% ==============================================================================
+
+\subsection{Implementation Stack and Prototype Walkthrough}
+
+Food Guardian is implemented in Python~3.11 with Streamlit, SQLite, Pandas, NumPy, Plotly, Pydantic, LangGraph, LangChain Google GenAI, Gemini SDK, ChromaDB, and Sentence Transformers. Demonstration JSON files (\texttt{recipes.sample.json} and \texttt{food\_knowledge.\allowbreak sample.json}) enable reproducible testing, and knowledge tools explicitly expose source verification flags (such as \texttt{verified=false} for sample entries).
+
+In a verified multi-tool scenario---asking for two servings of tomato scrambled eggs when SQLite holds 2 tomatoes and 3 eggs against a 2-serving need of 2 tomatoes and 4 eggs---\texttt{recommend\_recipes\_\allowbreak for\_servings\_tool(servings=2, mode=ready\_now)} ranks fully stocked \textit{cabbage scrambled eggs} first, whereas \texttt{mode=expiry\_first} promotes near-expiry \textit{tomato scrambled eggs} while explicitly reporting 1 missing egg. Similarly, \texttt{validate\_inventory\_\allowbreak safety\_tool} reads SQLite stock (e.g., chicken breast) to return date-label status, rationale, and disclaimers.
+
+\subsection{OpenSpec Acceptance and Error Taxonomy}
+
+Requirements \texttt{FR-01}--\texttt{FR-10} are formalized across five OpenSpec capability specs (\texttt{inventory-tracking}, \texttt{meal-recommendation}, \texttt{food-knowledge}, \texttt{usage-analytics}, and \texttt{workflow-evaluation}) under \texttt{validate-food-\allowbreak guardian-workflow}. The evaluation harness (\texttt{evaluation/\allowbreak run\_evaluation.py}, \texttt{retry\_handler.py}, \texttt{metrics.py}) applies bounded retries for transient Gemini 503 \texttt{UNAVAILABLE} responses, classifying exhausted failures as \texttt{API\_ERROR} (counted in \textit{API Success Rate}) rather than misattributing them to \texttt{TOOL\_MISMATCH} in \textit{Valid Tool Selection Accuracy}.
+
+\subsection{Preliminary Verification Results}
+
+Table~\ref{tab:prelim_results} summarizes current verified results. All 40 unit tests (\texttt{pytest tests -q}) pass. Across the 30-case fixed evaluation suite (6 categories $\times$ 5 cases), 25 cases pass offline deterministic and static checks, while 5 multi-tool cases remain \texttt{NOT\_RUN} offline. In a bounded Gemini Live run (\texttt{{-}{-}live {-}{-}category multi\_tool {-}{-}limit 3 {-}{-}max-retries 1}, excluding RAG-dependent \texttt{MUL-02} and \texttt{MUL-04}), all 3 attempted cases succeeded (API Success Rate: 3/3 = 100\%, 1 retry) with 3/3 (100\%) valid tool selection accuracy and 11.71\,s mean latency. These results do not claim a 30/30 pass rate, verified live RAG citation quality, or proven real-world waste reduction.
+
+\begin{table}[t]
+\centering
+\caption{Preliminary Verification and Evaluation Summary (Prototype Scope)}
+\label{tab:prelim_results}
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{p{4.1cm}p{1.5cm}p{2.5cm}}
+\toprule
+\textbf{Evaluation Metric / Check} & \textbf{Observed} & \textbf{Scope / Note} \\
+\midrule
+Pytest Unit Test Suite & 40 / 40 & All unit tests pass \\
+Fixed Suite Total Scenarios & 30 & 6 categories $\times$ 5 cases \\
+Offline Deterministic \& Static Pass & 25 & Rule and static checks \\
+Offline Not Run & 5 & Multi-tool LLM cases \\
+Gemini Live Attempted & 3 & Excludes \texttt{MUL-02}, \texttt{MUL-04} \\
+Live API Success Rate & 3 / 3 (100\%) & Single bounded run (1 retry) \\
+Valid Tool Selection Accuracy & 3 / 3 (100\%) & On valid live responses \\
+Mean Live Request Latency & 11.71\,s & Across 3 successful calls \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Comparative Evaluation Plan and Remaining Work}
+
+Planned paired-scenario benchmarking over 20--30 ingredients, 20--30 recipes, and 30 household test scenarios compares a \textit{General LLM Baseline} (no live SQLite inventory or safety tools) against the \textit{Food Guardian AI Agent} using \textit{Recipe Feasibility Rate}, \textit{Inventory Matching Rate}, and \textit{Reminder Accuracy}. Remaining tasks include live RAG groundedness audits (\texttt{MUL-02}, \texttt{MUL-04}), mixed-unit/zero-denominator analytics integration checks, and longitudinal field waste studies.

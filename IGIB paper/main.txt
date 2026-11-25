@@ -1,0 +1,494 @@
+% ==============================================================================
+% IEEE Conference Paper Manuscript (ICEIB Style: https://www.iceib.asia/)
+% Target Format: IEEEtran Conference Proceedings (4-8 pages, A4/Letter, English)
+% Compile with: pdflatex main.tex && pdflatex main.tex
+% ==============================================================================
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[hyphens]{url}
+\def\UrlBreaks{\do\/\do-\do_\do.}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Food Guardian: A Hybrid AI Agent Integrating Domain Knowledge and Data Analytics for Household Inventory Management and Food Waste Reduction}
+
+% TODO: Verify exact romanized author names, department/university affiliation, and institutional email addresses before camera-ready submission.
+\author{
+\IEEEauthorblockN{Chen-Lun Tai\IEEEauthorrefmark{1}, Yi-Fan Chen\IEEEauthorrefmark{1}, Wei-Hong Cho\IEEEauthorrefmark{1}, Jie Peng\IEEEauthorrefmark{1}, and Cheng-Ting Ko\IEEEauthorrefmark{1}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}Department of Computer Science and Engineering (Affiliations to be completed)\\
+Taiwan\\
+Email: \{7115056012, 7115056046, 7115056106, 7115056187, 7115056211\}@example.edu}
+}
+
+\maketitle
+
+\begin{abstract}
+According to the United Nations Environment Programme (UNEP) \textit{Food Waste Index Report 2024}, approximately 1.05 billion tonnes of food were wasted globally across retail, food service, and household sectors in 2022, with households accounting for roughly 60\% of the total. Effective household meal planning requires simultaneous tracking of ingredient quantities, portion scaling, date-label semantics, and food safety constraints; however, conventional recipe chatbots lack grounded inventory state and deterministic verification, often suggesting infeasible meals or omitting safety warnings. To address this gap, we present \textit{Food Guardian}, a hybrid artificial intelligence (AI) agent system integrating household inventory tracking, date-label reminders, food preservation knowledge retrieval, inventory-aware meal recommendation, and consumption/waste analytics. Implemented with Streamlit and SQLite for transactional inventory and event logging, Food Guardian employs Gemini orchestrated via LangGraph tool calling while delegating serving-scaled quantity normalization, deficit calculation, dual-mode ranking (\texttt{ready\_now} and \texttt{expiry\_first}), and conservative safety pre-screening (\texttt{eligible}, \texttt{review}, \texttt{blocked}) to deterministic Python services. Food preservation guidance is retrieved via structured JSON and a ChromaDB vector index with source attribution, while Pandas summarizes logged consumption and waste by compatible units. Under a specification-driven OpenSpec verification workflow, all 40 unit tests pass, 25 of 30 fixed evaluation cases pass offline deterministic and static checks (with 5 multi-tool cases excluded offline), and an initial Gemini Live evaluation of 3 non-RAG multi-tool cases achieved 3/3 API success and 3/3 valid tool selection accuracy (11.71\,s mean latency). Planned paired-scenario comparisons against generic large language models (LLMs), live retrieval-augmented generation (RAG) groundedness audits, and longitudinal field evaluations are also formulated.
+\end{abstract}
+
+\begin{IEEEkeywords}
+AI agent, household food waste, inventory-aware meal planning, large language models, tool calling, food safety screening, retrieval-augmented generation, OpenSpec.
+\end{IEEEkeywords}
+
+% ==============================================================================
+\section{Introduction}
+% ==============================================================================
+
+Global food waste represents a critical sustainability, economic, and resource management challenge. The United Nations Environment Programme (UNEP) \textit{Food Waste Index Report 2024} estimates that 1.05 billion tonnes of food were wasted across retail, food service, and household sectors in 2022, with households accounting for roughly 60\% of total global waste \cite{ref1}. Within daily household meal preparation, consumers frequently struggle to track what ingredients remain in refrigerators, freezers, and pantries, how much quantity is left, and which items require urgent consumption. Without synchronized inventory visibility and actionable meal planning, households face recurring over-purchasing and avoidable spoilage.
+
+While large language models (LLMs) and conversational recipe assistants have gained popularity, general-purpose chatbots operate without access to a household's actual inventory state. Consequently, they often recommend recipes that require missing ingredients, overlook items approaching their labeled dates, or fail to provide traceable justification for their recommendations. Furthermore, food date labels such as ``Use By'' and ``Best Before'' are widely misunderstood by consumers, leading either to premature disposal of safe food or unsafe consumption of perishable items \cite{ref2}, \cite{ref8}, \cite{ref9}.
+
+In this paper, we formulate the household meal-planning problem as generating verifiable, serving-scaled meal recommendations under known inventory, date-label constraints, and potentially incomplete storage metadata. For example, if a recipe for two servings of tomato scrambled eggs requires 4 eggs and 2 tomatoes, while the household inventory holds 3 eggs and 2 tomatoes, a reliable assistant must calculate and explicitly report the exact deficit (1 missing egg) rather than hallucinating sufficiency, and must clearly distinguish between meals immediately cookable from stock versus meals prioritizing near-expiry ingredients.
+
+Existing tools typically address these tasks in isolation: inventory spreadsheets report ``what is on hand,'' reminder apps report ``what is nearing a date label,'' and recipe platforms report ``how to cook a dish.'' Bridging these functions into a single household decision requires verifying ingredient quantities across compatible units, applying conservative safety exclusions prior to recommendation, and logging post-cooking outcomes without conflating recommendation with actual consumption. While recent prototypes such as MealMind demonstrate the integration of visual ingredient recognition and LLM meal planning \cite{ref3}, there remains a need for lightweight, reproducible architectures that ground manual household inventories in deterministic arithmetic and auditable tool traces.
+
+To address these challenges, we propose \textit{Food Guardian}, a hybrid AI agent system built for single-household deployment. Its primary innovations and contributions are summarized as follows:
+\begin{enumerate}
+    \item \textbf{Hybrid Tool-Calling Architecture:} We decouple natural language intent understanding and orchestration (Gemini via LangGraph) from deterministic computation (Python services over SQLite), ensuring that serving scaling, unit normalization, shortage calculation, and safety pre-screening are strictly reproducible.
+    \item \textbf{Dual-Mode Inventory-Aware Recommendation:} We implement \texttt{ready\_now} and \texttt{expiry\_first} ranking modes (while retaining backward compatibility with \texttt{balanced} mode) so users can prioritize either zero-shopping feasibility or near-expiry ingredient utilization with explicit shortage reporting.
+    \item \textbf{Conservative Safety Pre-Screening and Source-Attributed Knowledge:} We enforce rule-based safety categorization (\texttt{eligible}, \texttt{review}, \texttt{blocked}) over SQLite records and integrate structured JSON plus ChromaDB retrieval-augmented generation (RAG) that surfaces source verification status rather than fabricating safety assurances.
+    \item \textbf{Transactional Analytics and OpenSpec Verification:} We separate read-only recommendation from user-confirmed consumption and waste logging in atomic SQLite transactions, and formalize functional and evaluation contracts (\texttt{FR-01} to \texttt{FR-10}) using OpenSpec for auditable verification.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:related_work} reviews related AI recipe systems and household food waste research. Section~\ref{sec:design_principles} discusses domain mindsets and architectural trade-offs. Section~\ref{sec:proposed_system} details the proposed system architecture, data lifecycle, and core algorithms. Section~\ref{sec:implementation_eval} presents implementation details, OpenSpec workflows, preliminary verification results, and the comparative evaluation plan. Finally, Section~\ref{sec:conclusion} concludes the paper.
+
+% ==============================================================================
+\section{Related Work}
+\label{sec:related_work}
+% ==============================================================================
+
+Research relevant to Food Guardian spans two complementary dimensions: (1) AI technologies for inventory-aware and knowledge-enhanced food recommendation, and (2) domain know-how regarding consumer date-label comprehension and household food waste dynamics.
+
+\subsection{AI Technologies for Food Management and Recommendation}
+
+Recent studies have explored automated ingredient acquisition, structured food knowledge graphs, and ontology-grounded RAG to improve recipe advisory systems.
+
+Kubatbek kyzy and Shambetova proposed \textit{MealMind}, an AI framework combining computer vision ingredient recognition, ingredient prioritization, and LLM-based meal planning to mitigate household decision fatigue and food waste \cite{ref3}. MealMind illustrates an integrated inventory-to-planner pipeline, though its preliminary evaluation remains at the preprint prototype stage.
+
+Mohbat and Zaki introduced \textit{KERL} (Knowledge-Enhanced Personalized Recipe Recommendation using Large Language Models) at ACL 2025, coupling recipe knowledge graphs with LLMs to incorporate nutritional and ingredient constraints in personalized question answering \cite{ref4}. While KERL improves recommendation relevance and nutrition alignment, it does not directly manage a persistent, transactional household inventory ledger.
+
+Bagozi et al. presented an ontology-enhanced RAG approach built upon the FoCOSA food ontology to support personalized and sustainable food advice \cite{ref5}. Their work highlights the value of structured domain ontologies in evaluating factual accuracy and reducing LLM hallucinations when generating dietary and food guidance.
+
+Kurniawan et al. investigated AI-driven recipe recommendation from ingredient images, pairing visual classification and quantity estimation with recipe matching models \cite{ref6}. Their pipeline demonstrates how quantitative ingredient inputs feed into recipe selection, motivating our focus on explicit unit-normalized quantity verification.
+
+In contrast to vision-first acquisition pipelines \cite{ref3}, \cite{ref6}, Food Guardian targets manually maintained household inventories stored in SQLite and emphasizes deterministic Python recalculation of shortages, unit compatibility, and rule-based safety pre-screening paired with tool-trace auditing.
+
+\subsection{Domain Know-How on Date Labels and Food Waste Behavior}
+
+Empirical and modeling studies in food systems reveal why purely technical recipe generators fall short in real households.
+
+van Rooijen et al. formulated a rolling-horizon mathematical planning model analyzing how shopping frequency and meal-demand uncertainty affect household food waste \cite{ref7}. Their simulation results demonstrate that inventory-aware recipe selection and adaptive planning reduce simulated waste, and that optimal shopping cadence varies with demand stability.
+
+Llagas et al. conducted a systematic scoping review of academic and grey literature on consumer perceptions of date labeling and storage advice \cite{ref8}. They found that inconsistent terminology and unclear preservation instructions frequently confuse consumers and distort disposal decisions, underscoring guidelines from the U.S. Food and Drug Administration (FDA) \cite{ref2} and USDA Food Safety and Inspection Service (FSIS) \cite{ref11}.
+
+Cliceri et al. surveyed consumers across six European countries and identified distinct behavioral patterns in how households interpret and act upon date labels \cite{ref9}. Their findings support designing user interfaces that explicitly display label types and rationale rather than opaque expiry alerts.
+
+Widayat et al. synthesized 132 consumer-behavior studies on food waste dynamics, demonstrating that household waste arises from interacting factors across purchasing, storage management, and daily routines rather than expiration dates alone \cite{ref10}. Consequently, Food Guardian pairs date reminders with explicit consumption and waste event logs to support data-driven reflection.
+
+\subsection{Comparative Summary and Research Gap}
+
+Tables~\ref{tab:lit_ai} and~\ref{tab:lit_domain} summarize the reviewed AI technology and domain know-how literature based on their problem formulations, evidence bases, and applicability boundaries.
+
+\begin{table*}[t]
+\centering
+\caption{Summary of Related AI Technology Research}
+\label{tab:lit_ai}
+\renewcommand{\arraystretch}{1.25}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}p{2.2cm}p{4.9cm}p{4.2cm}p{5.1cm}@{}}
+\toprule
+\textbf{Study} & \textbf{Problem and Method} & \textbf{Data and Evidence} & \textbf{Findings and Applicability Scope} \\
+\midrule
+MealMind \cite{ref3} & Computer-vision inventory capture, usage prioritization, and LLM meal planning & Prototype design and preliminary evaluation (preprint) & Demonstrates inventory-to-meal integration; real-world waste reduction unverified \\
+KERL \cite{ref4} & Recipe knowledge graph paired with LLM for personalized recommendation & Benchmark evaluation on recipe, nutrition, and QA tasks & Validates knowledge-augmented recommendation; lacks household stock ledger \\
+Bagozi et al. \cite{ref5} & FoCOSA ontology-enhanced RAG for sustainable food advisory & Ontology-grounded response accuracy and hallucination checks & Supports citation quality evaluation; does not execute transaction-safe inventory math \\
+Kurniawan et al. \cite{ref6} & Ingredient image recognition, quantity estimation, and recipe matching & Experimental evaluation on food ingredient imagery & Shows utility of quantified ingredients; focused on recognition rather than date safety \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Summary of Related Domain Know-How Research}
+\label{tab:lit_domain}
+\renewcommand{\arraystretch}{1.25}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}p{2.2cm}p{4.9cm}p{4.2cm}p{5.1cm}@{}}
+\toprule
+\textbf{Study} & \textbf{Problem and Method} & \textbf{Data and Evidence} & \textbf{Findings and Applicability Scope} \\
+\midrule
+van Rooijen et al. \cite{ref7} & Rolling-horizon model of shopping frequency and demand uncertainty & Household meal-planning simulation under varying demand & Supports inventory-first, adaptive planning; outcomes depend on model assumptions \\
+Llagas et al. \cite{ref8} & Date labeling, storage advice, and consumer understanding & Systematic scoping review of academic and grey literature & Alerts should clarify label semantics and storage context \\
+Cliceri et al. \cite{ref9} & Consumer usage patterns of date labels and household waste & Six-country European consumer survey & Supports transparent UI display of label types; relies on self-reported survey data \\
+Widayat et al. \cite{ref10} & Behavioral drivers of household food waste dynamics & Systematic review of 132 behavioral studies & Supports logging purchase and disposal context; requires field trials for impact claims \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+Across these studies, existing evaluations examine isolated units---image detection accuracy, recipe QA relevance, ontology grounding, optimization simulations, or self-reported surveys. A clear \textbf{research gap} persists at the system-integration level: given a target number of servings and a persistent household inventory with potentially incomplete date or unit metadata, how can an AI agent tightly couple inventory queries, conservative food safety pre-screening, deterministic shortage calculation, and verifiable knowledge citations into a unified, testable workflow? Food Guardian directly targets this verifiable integration gap.
+
+% ==============================================================================
+\section{Design Principles and Domain Considerations}
+\label{sec:design_principles}
+% ==============================================================================
+
+Grounded in food safety agency guidance \cite{ref2}, \cite{ref11} and the reviewed literature, Food Guardian's architecture is governed by five core design mindsets and three resolved engineering trade-offs.
+
+\subsection{Five Core Design Mindsets}
+
+\begin{enumerate}
+    \item \textbf{Food Safety First:} Waste reduction must never compromise food safety. Edibility cannot be inferred from a single date alone; missing storage context or ambiguous label semantics require conservative warnings or manual user confirmation rather than optimistic recommendations \cite{ref2}, \cite{ref8}.
+    \item \textbf{Inventory Visibility:} Reliable meal planning depends on grounded stock records (name, quantity, unit, purchase date, date label type, storage location, and active status). The LLM agent must query SQLite via tools rather than assuming ingredient availability \cite{ref7}.
+    \item \textbf{Inventory-First Meal Planning:} Rather than selecting dishes first and shopping afterward, candidate recipes are scored against existing stock and date urgency while respecting hard dietary and safety exclusions \cite{ref7}.
+    \item \textbf{Data-Driven Decision Making:} Because waste stems from multiple behavioral and planning causes \cite{ref10}, logging granular consumption and disposal events enables unit-consistent waste ratio analysis.
+    \item \textbf{Personalized and Adaptive Planning:} Household headcount and meal plans fluctuate dynamically \cite{ref7}; therefore, recommendations recalculate serving-scaled quantities on demand whenever stock or target servings change.
+\end{enumerate}
+
+\subsection{Architectural Trade-Offs}
+
+\textbf{Date-Based Management vs. Context-Aware Safety Assessment:} Purely date-sorted lists are simple to implement but ignore semantic differences between safety-critical \textit{Use By} dates and quality-oriented \textit{Best Before} dates, as well as storage location or opened status \cite{ref2}, \cite{ref8}. Because household deployments lack IoT temperature sensors, Food Guardian adopts a hybrid approach: calendar dates drive reminder tiers, while a conservative rule-based validator screens inventory records before recommendation and flags incomplete or ambiguous items for human inspection.
+
+\textbf{Frequent Shopping vs. Long-Term Meal Planning:} Neither frequent purchasing nor rigid multi-day meal plans universally minimizes waste across households with differing schedule stability \cite{ref7}. Food Guardian adopts dynamic on-demand replanning: whenever a user updates servings or stock, the agent recomputes feasibility from the current SQLite state rather than locking users into static weekly menus.
+
+\textbf{Rule-Based vs. LLM-Based Decision Making:} Pure rule engines lack natural language flexibility, whereas pure LLMs risk arithmetic errors, unit hallucinations, and unsafe food-handling claims \cite{ref4}, \cite{ref5}. Food Guardian adopts a \textit{Hybrid AI Agent} architecture: the LLM handles intent parsing, tool selection, and explanation, while deterministic Python modules compute quantities, shortages, safety classifications, and analytics.
+
+% ==============================================================================
+\section{Proposed System Architecture and Algorithms}
+\label{sec:proposed_system}
+% ==============================================================================
+
+\subsection{System Overview and Component Architecture}
+
+Food Guardian integrates a web interface, transactional SQLite persistence, deterministic domain services, a LangGraph-orchestrated Gemini agent, and a food knowledge retrieval pipeline. Figure~\ref{fig:architecture} illustrates the overall system architecture, and Table~\ref{tab:components} summarizes each module's responsibility and current verification status.
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.1cm,
+    box/.style={rectangle, draw=black!80, rounded corners=3pt, minimum width=2.5cm, minimum height=0.75cm, align=center, font=\footnotesize, fill=white, thick},
+    service/.style={rectangle, draw=blue!70!black, rounded corners=3pt, minimum width=2.7cm, minimum height=0.75cm, align=center, font=\footnotesize, fill=blue!5, thick},
+    agent/.style={rectangle, draw=teal!70!black, rounded corners=3pt, minimum width=2.7cm, minimum height=0.75cm, align=center, font=\footnotesize, fill=teal!5, thick},
+    store/.style={cylinder, shape border rotate=90, aspect=0.22, draw=orange!70!black, minimum width=1.9cm, minimum height=0.9cm, align=center, font=\footnotesize, fill=orange!6, thick},
+    arrow/.style={-{Stealth[length=2.2mm]}, thick, draw=black!75},
+    biarrow/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]}, thick, draw=black!75}
+]
+
+% Left column: User and UI
+\node[box, minimum width=1.7cm] (user) {Household\\User};
+\node[box, right=0.8cm of user, minimum width=2.2cm] (ui) {Streamlit UI\\(\texttt{app.py})};
+
+% UI Pages
+\node[service, above right=0.6cm and 0.9cm of ui] (inv_page) {Inventory \&\\Reminders Page};
+\node[agent, right=0.9cm of ui] (chat_page) {AI Agent\\Chat Page};
+\node[service, below right=0.6cm and 0.9cm of ui] (ana_page) {Usage \& Waste\\Analytics Page};
+
+% Core Service & Orchestration Layer
+\node[service, right=1.0cm of inv_page] (inv_svc) {InventoryService /\\ReminderService};
+\node[agent, right=1.0cm of chat_page] (graph) {Gemini + LangGraph\\(\& Local Rule Mode)};
+\node[service, right=1.0cm of ana_page] (ana_svc) {AnalyticsService\\(Pandas / Plotly)};
+
+% Agent Tools Layer
+\node[agent, right=1.0cm of graph, yshift=1.4cm] (t_inv) {Inventory \&\\Expiry Tools};
+\node[agent, right=1.0cm of graph, yshift=0.45cm] (t_port) {Recipe \& Portion\\Service};
+\node[agent, right=1.0cm of graph, yshift=-0.5cm] (t_safe) {Safety Validator\\(\texttt{safety\_service})};
+\node[agent, right=1.0cm of graph, yshift=-1.45cm] (t_rag) {Knowledge Tool\\\& ChromaDB RAG};
+
+% Data Stores
+\node[store, right=1.1cm of t_inv, yshift=0.25cm] (sqlite) {SQLite\\Database};
+\node[store, right=1.1cm of t_port, yshift=-0.1cm] (recipes) {Recipes\\JSON};
+\node[store, right=1.1cm of t_rag, yshift=0.35cm] (kjson) {Food Know.\\JSON};
+\node[store, right=1.1cm of t_rag, yshift=-0.7cm] (chroma) {ChromaDB\\Index};
+
+% Arrows
+\draw[biarrow] (user) -- (ui);
+\draw[arrow] (ui) |- (inv_page);
+\draw[arrow] (ui) -- (chat_page);
+\draw[arrow] (ui) |- (ana_page);
+
+\draw[biarrow] (inv_page) -- (inv_svc);
+\draw[biarrow] (chat_page) -- (graph);
+\draw[biarrow] (ana_page) -- (ana_svc);
+
+\draw[arrow] (graph) |- (t_inv);
+\draw[arrow] (graph) -- (t_port);
+\draw[arrow] (graph) -- (t_safe);
+\draw[arrow] (graph) |- (t_rag);
+
+\draw[biarrow] (inv_svc.north) -- ++(0,0.65) -| (sqlite.north);
+\draw[arrow] (ana_svc.south) -- ++(0,-0.6) -| ([xshift=0.55cm]chroma.east) |- (sqlite.east);
+\draw[arrow] (t_inv) -- (sqlite);
+\draw[arrow] (t_safe.east) -| ([xshift=-0.45cm]sqlite.west) -- (sqlite.west);
+\draw[arrow] (t_port) -- (recipes);
+\draw[arrow] (t_port.north east) -- (sqlite.south west);
+\draw[arrow] (t_rag.east) -- (kjson.west);
+\draw[arrow] (t_rag.south east) -- (chroma.west);
+
+\end{tikzpicture}%
+}
+\caption{Food Guardian hybrid system architecture decoupling Streamlit UI and Gemini/LangGraph orchestration from deterministic Python services and SQLite/JSON/ChromaDB data stores.}
+\label{fig:architecture}
+\end{figure*}
+
+\begin{table*}[t]
+\centering
+\caption{System Components, Responsibilities, and Verification Status}
+\label{tab:components}
+\renewcommand{\arraystretch}{1.22}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}p{4.3cm}p{7.0cm}p{5.3cm}@{}}
+\toprule
+\textbf{Module / File Path} & \textbf{Core Responsibility} & \textbf{Current Verification Status} \\
+\midrule
+\texttt{src/ui/app.py}, \texttt{components/} & Streamlit navigation, inventory CRUD, reminders, AI chat, and analytics views & Operational records logged; cross-team manual acceptance pending \\
+\texttt{src/database/\allowbreak db\_manager.py}, \texttt{schema.sql} & SQLite connection, schema initialization, and atomic transactions & Implemented in core database layer \\
+\texttt{inventory\_service.py}, \texttt{reminder\_service.py} & Inventory CRUD, consumption/waste deduction, calendar-day date reminders & Implemented; verified via 40 unit tests \\
+\texttt{gemini\_graph.py}, \texttt{gemini\_mode.py} & Gemini + LangGraph agent orchestration and tool-call trace capture & Verified on 3 live non-RAG multi-tool cases \\
+\texttt{agent\_core.py} & Local rule-based fallback mode when API key is absent or unselected & Tested offline; manual mode selection only \\
+\texttt{portion\_service.py}, \texttt{recipe\_tools.py} & Serving scaling, unit normalization, deficit calculation, dual-mode ranking & Calculation and tool traces verified \\
+\texttt{safety\_service.py} & Conservative safety pre-screening over SQLite dates and risk rules & Tool return values verified on SQLite data \\
+\texttt{knowledge\_service.py}, \texttt{rag\_service.py} & JSON preservation lookup and ChromaDB (Sentence Transformers) RAG & Index built and static checks pass; Live RAG quality (\texttt{MUL-02}, \texttt{MUL-04}) pending \\
+\texttt{analytics\_service.py} & Unit-consistent aggregation of consumption/waste events via Pandas/Plotly & Service interface implemented; end-to-end dashboard acceptance pending \\
+\texttt{evaluation/\allowbreak run\_evaluation.py} & Fixed 30-case suite, retry handler, error taxonomy, CSV/summary reporting & Offline (25/30) and Live subset (3/3) executed \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+During a typical interaction, a natural language query enters the Streamlit Chat Page and is routed to the LangGraph workflow (\texttt{gemini\_graph.py}). Gemini selects read-only tools---such as inventory retrieval, serving-scaled recipe recommendation (\texttt{recommend\_recipes\_\allowbreak for\_servings\_tool}), SQLite safety validation (\texttt{validate\_inventory\_\allowbreak safety\_tool}), or food knowledge search---to obtain structured JSON/dict outputs. Python services perform all arithmetic and safety rule evaluations, and Gemini synthesizes a grounded response citing returned quantities, deficits, and source attributes. When \texttt{GOOGLE\_API\_KEY} is unavailable, users can manually select the local rule-based fallback mode; the system does not silently substitute local rule outputs for failed Gemini API requests.
+
+\subsection{Data Model and Lifecycle Management}
+
+Persistent state is stored in SQLite using three primary tables defined in \texttt{schema.sql}:
+\begin{itemize}
+    \item \texttt{inventory\_items}: Tracks \texttt{id}, \texttt{name}, \texttt{category}, \texttt{quantity} (REAL), \texttt{unit} (TEXT), \texttt{purchase\_date}, optional \texttt{expiry\_date}, \texttt{date\_label\_type} (\texttt{use\_by}, \texttt{best\_before}, or \texttt{NULL}), optional \texttt{opened\_date}, \texttt{storage\_location} (\texttt{refrigerator}, \texttt{freezer}, \texttt{pantry}), \texttt{status} (\texttt{active}, \texttt{consumed}, \texttt{wasted}), and timestamps.
+    \item \texttt{consumption\_\allowbreak waste\_logs}: Captures immutable event snapshots (\texttt{item\_id}, \texttt{item\_name}, \texttt{category}, \texttt{quantity}, \texttt{unit}, \texttt{action\_type}, \texttt{reason}, \texttt{log\_date}, \texttt{created\_at}). If a user deletes an erroneous inventory entry, the foreign key sets \texttt{item\_id} to \texttt{NULL} while preserving historical log snapshots, keeping accidental-entry deletion semantically distinct from real food waste.
+    \item \texttt{recipe\_\allowbreak recommendations}: Schema table reserved for recommendation persistence; in the current prototype, recipe matching executes dynamically over demonstration JSON data (\texttt{data/knowledge\_base/\allowbreak recipes.sample.json}).
+\end{itemize}
+
+All inventory deductions execute inside atomic SQLite transactions that reject overdraft requests (e.g., attempting to deduct 2 eggs when 1 remains leaves both stock and logs unchanged). Partially used items remain \texttt{active} until \texttt{quantity} reaches zero, at which point \texttt{status} transitions to \texttt{consumed} or \texttt{wasted} according to the final transaction. Consequently, analytics must aggregate from \texttt{consumption\_\allowbreak waste\_logs} rather than final item status.
+
+\subsection{Core Algorithms and Mathematical Formulations}
+
+\subsubsection{Calendar-Day Date Reminders}
+For any active item with a non-null \texttt{expiry\_date} and configurable threshold $t \ge 0$ (in calendar days relative to the host's current date), the day difference $d = \text{expiry\_date} - \text{today}$ partitions items into four reminder states:
+\begin{equation}
+\begin{aligned}
+&\text{ReminderState}(d) = \\
+&\quad \begin{cases}
+\texttt{no\_date}, & \text{if } \texttt{expiry\_date} = \text{NULL}, \\
+\texttt{passed\_date}, & \text{if } d < 0, \\
+\texttt{expiring\_soon}, & \text{if } 0 \le d \le t, \\
+\texttt{normal}, & \text{otherwise}.
+\end{cases}
+\end{aligned}
+\end{equation}
+Reminder classification strictly reflects label dates and does not constitute a food safety certification.
+
+\subsubsection{Serving-Scaled Quantity Validation}
+Given a candidate recipe $r$ with base serving size $S_{\text{base}}(r) > 0$, target user servings $S_{\text{target}} > 0$, and base requirement $q_{\text{base}}(r, i)$ for ingredient $i$, the required amount is scaled linearly:
+\begin{equation}
+q_{\text{req}}(r, i) = q_{\text{base}}(r, i) \times \frac{S_{\text{target}}}{S_{\text{base}}(r)}.
+\end{equation}
+When inventory and recipe units belong to a compatible conversion family (e.g., $\text{g} \leftrightarrow \text{kg}$, $\text{mL} \leftrightarrow \text{L}$), both quantities are normalized to a canonical unit, yielding the exact shortage:
+\begin{equation}
+q_{\text{miss}}(r, i) = \max\!\left(0,\, q_{\text{req}}(r, i) - q_{\text{avail}}(i)\right).
+\end{equation}
+Incompatible or unconvertible units (such as \texttt{other}, bunch, or pack against weight units) are explicitly preserved as \texttt{unknown} and flagged for manual confirmation rather than assumed sufficient.
+
+\subsubsection{Dual-Mode Recipe Ranking and Safety Pre-Screening}
+Before recipe scoring, \texttt{safety\_service.py} evaluates active SQLite batches using conservative domain rules: items past a \texttt{use\_by} date or triggering known exclusion conditions are classified as \texttt{blocked}, items past a \texttt{best\_before} date or missing critical metadata are classified as \texttt{review}, and remaining batches are marked \texttt{eligible}. Both \texttt{blocked} and \texttt{review} batches are excluded from automatic usable stock counts, and \texttt{eligible} explicitly denotes only that no known exclusion rule fired.
+
+Feasible candidate recipes are ranked via internal \texttt{quantity\_\allowbreak coverage} and \texttt{urgency\_score} metrics under two primary user-selectable modes (plus backward-compatible \texttt{balanced} mode):
+\begin{itemize}
+    \item \texttt{ready\_now}: Prioritizes recipes whose required ingredients are fully covered by confirmed, compatible inventory quantities; partial-stock recipes rank lower and disclose missing items.
+    \item \texttt{expiry\_first}: Prioritizes recipes that consume eligible ingredients closest to their labeled dates, even if another ingredient is short (provided the deficit is explicitly reported and the dish is not marked ready to cook immediately).
+\end{itemize}
+
+\subsubsection{Unit-Consistent Waste Analytics}
+To prevent invalid cross-unit arithmetic (e.g., summing kilograms with piece counts), \texttt{analytics\_service.py} groups \texttt{consumption\_\allowbreak waste\_logs} by time period, category, and compatible unit $u$. Whenever total logged handling volume $C_u + W_u > 0$, the recorded waste ratio is computed as:
+\begin{equation}
+\text{WasteRatio}_u = \frac{W_u}{C_u + W_u} \times 100\%,
+\end{equation}
+where $C_u$ and $W_u$ denote total consumed and wasted quantities in unit $u$, respectively. Groups with zero total denominator produce no ratio.
+
+\subsubsection{Hybrid Agent Execution Algorithm}
+Algorithm~\ref{alg:food_guardian} formalizes the end-to-end execution logic, while Fig.~\ref{fig:flowchart} highlights the three critical invariant gates: incomplete-data handling, post-LLM deterministic verification, and confirmation-gated inventory deduction.
+
+\begin{algorithm}[t]
+\caption{Food Guardian Hybrid AI Agent Execution}
+\label{alg:food_guardian}
+\begin{algorithmic}[1]
+\REQUIRE User query $Q$, SQLite inventory $I$, user preferences $P$, target servings $S_{\text{target}}$, mode $M \in \{\texttt{ready\_now}, \texttt{expiry\_first}, \texttt{balanced}\}$
+\ENSURE Grounded recommendation $R$ with deficits, safety flags, and citations
+\STATE Parse intent and parameters $(S_{\text{target}}, M, P)$ from $Q$ via LLM Agent
+\STATE Select read-only tools for inventory, recipes, safety, and knowledge
+\STATE Retrieve active inventory $I_{\text{active}}$ and candidate recipes $D$
+\IF{critical metadata (e.g., unit, date label, servings) is missing}
+    \STATE Prompt user for clarification or mark uncertain fields explicitly
+\ENDIF
+\STATE Retrieve preservation knowledge $K$ (JSON / ChromaDB RAG) with source metadata
+\STATE Classify each batch in $I_{\text{active}}$ into $\{\texttt{eligible}, \texttt{review}, \texttt{blocked}\}$
+\STATE Exclude \texttt{review} and \texttt{blocked} batches from usable inventory $I_{\text{usable}}$
+\FOR{each candidate recipe $r \in D$}
+    \STATE Compute $q_{\text{req}}(r, i)$ scaled to $S_{\text{target}}$ for each ingredient $i$
+    \STATE Normalize compatible units and compute $q_{\text{miss}}(r, i)$ against $I_{\text{usable}}$
+    \STATE Flag incompatible units as \texttt{unknown} (never assume sufficient)
+    \STATE Evaluate hard dietary restrictions from $P$, \texttt{quantity\_\allowbreak coverage}, and \texttt{urgency\_score}
+    \STATE Reject $r$ if hard constraints are violated
+\ENDFOR
+\STATE Rank feasible recipes according to mode $M$
+\IF{no feasible recipe satisfies constraints}
+    \STATE Return transparent explanation of stock deficits or safety exclusions
+\ELSE
+    \STATE Construct recommendation $R$ citing exact stock, shortages, safety disclaimers, and knowledge sources
+\ENDIF
+\STATE Present $R$ to user (read-only; inventory $I$ remains unmodified)
+\IF{user explicitly confirms actual cooking usage or disposal}
+    \STATE Execute atomic SQLite transaction updating $I$ and appending \texttt{consumption\_\allowbreak waste\_logs}
+\ENDIF
+\RETURN $R$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{figure}[t]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.45cm,
+    proc/.style={rectangle, rounded corners=2pt, draw=black!80, fill=white, align=center, font=\scriptsize, minimum width=4.6cm, minimum height=0.55cm, thick},
+    gate/.style={rectangle, rounded corners=2pt, draw=red!70!black, fill=red!5, align=center, font=\scriptsize, minimum width=4.6cm, minimum height=0.55cm, thick},
+    dec/.style={diamond, aspect=2.6, draw=blue!70!black, fill=blue!5, align=center, font=\scriptsize, inner sep=1pt, thick},
+    arrow/.style={-{Stealth[length=2mm]}, thick, draw=black!75}
+]
+\node[proc] (q) {User Query $Q$ + Servings $S_{\text{target}}$ + Mode $M$};
+\node[proc, below=of q] (intent) {LLM / LangGraph Intent \& Tool Selection};
+\node[gate, below=of intent] (g1) {\textbf{Gate 1: Data Completeness \& Safety}\\Check missing fields; filter \texttt{blocked}/\texttt{review}};
+\node[proc, below=of g1] (calc) {Python \texttt{portion\_service}: Scale $q_{\text{req}}$,\\Normalize Units, Compute $q_{\text{miss}}$};
+\node[gate, below=of calc] (g2) {\textbf{Gate 2: Deterministic Validation}\\Preserve \texttt{unknown} units; rank by $M$};
+\node[proc, below=of g2] (out) {Present Traceable Recommendation $R$\\(Read-Only Stock, Deficits, Citations)};
+\node[dec, below=0.5cm of out] (conf) {User Confirms\\Actual Usage?};
+\node[gate, below=0.5cm of conf] (g3) {\textbf{Gate 3: Atomic Ledger Update}\\SQLite Transaction + Event Log};
+
+\draw[arrow] (q) -- (intent);
+\draw[arrow] (intent) -- (g1);
+\draw[arrow] (g1) -- (calc);
+\draw[arrow] (calc) -- (g2);
+\draw[arrow] (g2) -- (out);
+\draw[arrow] (out) -- (conf);
+\draw[arrow] (conf) -- node[right, font=\scriptsize] {Yes} (g3);
+\draw[arrow] (conf.east) -- ++(0.9,0) |- node[pos=0.25, right, font=\scriptsize] {No (Read-only)} (q.east);
+\end{tikzpicture}%
+}
+\caption{Execution and verification flow enforcing three core invariants: incomplete-data safety screening, deterministic post-LLM validation, and confirmation-gated inventory deduction.}
+\label{fig:flowchart}
+\end{figure}
+
+% ==============================================================================
+\section{Implementation, OpenSpec Verification, and Evaluation}
+\label{sec:implementation_eval}
+% ==============================================================================
+
+\subsection{Implementation Stack and Prototype Walkthrough}
+
+Food Guardian is implemented in Python~3.11 using Streamlit for the multi-page web interface, SQLite for relational persistence, and Pandas, NumPy, and Plotly for data aggregation and visualization. The agentic layer builds on LangGraph, LangChain Google GenAI, and the Gemini SDK, while optional RAG retrieval uses Sentence Transformers embeddings indexed in ChromaDB. Demonstration datasets (\texttt{recipes.sample.json} and \texttt{food\_knowledge.\allowbreak sample.json}) support reproducible offline and prototype testing without requiring proprietary datasets, and knowledge tools explicitly expose source attributes (including \texttt{verified=false} for sample entries) so unverified examples are never misrepresented as official agency guidance.
+
+In a verified multi-tool scenario---asking for ``two servings of tomato scrambled eggs'' when SQLite holds 2 tomatoes and 3 eggs against a 2-serving requirement of 2 tomatoes and 4 eggs---\texttt{recommend\_recipes\_for\_servings\_tool(servings=2, mode=ready\_now)} ranks fully stocked \textit{cabbage scrambled eggs} first, whereas \texttt{mode=expiry\_first} elevates urgent \textit{tomato scrambled eggs} while explicitly reporting a deficit of 1 egg. Similarly, \texttt{validate\_inventory\_\allowbreak safety\_tool} queries actual SQLite rows (e.g., chicken breast) to return date-label classification, reasons, and safety disclaimers.
+
+\subsection{OpenSpec Specification-Driven Acceptance}
+
+To separate implemented capabilities from pending integration items rigorously, system requirements \texttt{FR-01} through \texttt{FR-10} are codified as five OpenSpec capability specifications (\texttt{inventory-tracking}, \texttt{meal-recommendation}, \texttt{food-knowledge}, \texttt{usage-analytics}, and \texttt{workflow-evaluation}) paired with a structured acceptance task checklist (\texttt{validate-food-\allowbreak guardian-workflow}). OpenSpec defines observable behavioral contracts---such as atomic overdraft rejection, \texttt{use\_by} vs. \texttt{best\_before} screening, explicit \texttt{unknown} unit reporting, and unit-separated analytics denominators.
+
+Critically, the evaluation harness (\texttt{evaluation/\allowbreak run\_evaluation.py}, \texttt{retry\_handler.py}, \texttt{metrics.py}) distinguishes external service availability from agent reasoning accuracy. Transient Gemini 503 \texttt{UNAVAILABLE} responses undergo bounded backoff retries; cases failing after retry exhaustion are labeled \texttt{API\_ERROR} and counted in the \textit{API Success Rate} denominator, but excluded from the \textit{Valid Tool Selection Accuracy} denominator (\texttt{TOOL\_MISMATCH} vs. valid tool trace).
+
+\subsection{Preliminary Verification Results}
+
+Table~\ref{tab:prelim_results} reports the verified evidence collected to date across unit tests, offline fixed evaluation scenarios, and an initial Gemini Live run. All 40 unit tests (\texttt{pytest tests -q}) pass. In the 30-case fixed evaluation suite (6 categories $\times$ 5 cases), 25 cases pass offline deterministic rule and static document checks, while 5 multi-tool cases requiring live LLM tool calling remain \texttt{NOT\_RUN} in offline mode. In a bounded Gemini Live run (\texttt{{-}{-}live {-}{-}category multi\_tool {-}{-}limit 3 {-}{-}max-retries 1}, excluding the two RAG-dependent cases \texttt{MUL-02} and \texttt{MUL-04}), all 3 attempted queries succeeded (API Success Rate: 3/3 = 100\%, 1 bounded retry) and triggered the required tool calls (Valid Tool Selection Accuracy: 3/3 = 100\%, mean successful latency: 11.71\,s).
+
+\begin{table}[t]
+\centering
+\caption{Preliminary Verification and Evaluation Summary (Prototype Scope)}
+\label{tab:prelim_results}
+\renewcommand{\arraystretch}{1.22}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}p{4.1cm}p{1.5cm}p{2.5cm}@{}}
+\toprule
+\textbf{Evaluation Metric / Check} & \textbf{Observed} & \textbf{Scope / Note} \\
+\midrule
+Pytest Unit Test Suite & 40 / 40 & All existing unit tests pass \\
+Fixed Suite Total Scenarios & 30 & 6 categories $\times$ 5 cases \\
+Offline Deterministic \& Static Pass & 25 & Rule logic and static checks \\
+Offline Not Run & 5 & Multi-tool LLM cases \\
+Gemini Live Attempted (Multi-Tool) & 3 & Excludes RAG (\texttt{MUL-02}, \texttt{MUL-04}) \\
+Live API Success Rate & 3 / 3 (100\%) & Single bounded run (1 retry) \\
+Valid Tool Selection Accuracy & 3 / 3 (100\%) & Measured on valid responses \\
+Mean Live Request Latency & 11.71\,s & Across 3 successful calls \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+In accordance with strict experimental reporting standards, these preliminary results do \textit{not} constitute a 100\% pass rate across all 30 scenarios, do not validate live RAG citation accuracy, and do not prove real-world household food waste reduction.
+
+\subsection{Planned Comparative Evaluation and Remaining Work}
+
+To complete end-to-end validation under the OpenSpec tasks, future evaluation will execute a paired-scenario benchmark comparing two configurations over 20--30 common ingredients, 20--30 recipes, and 30 structured household scenarios (covering sufficient stock, deficits, near-expiry items, and varying serving sizes):
+\begin{itemize}
+    \item \textbf{Baseline (General LLM Recommendation):} Prompts an LLM directly with user meal requests without live SQLite inventory access or deterministic safety tools.
+    \item \textbf{Proposed Method (Food Guardian AI Agent):} Provides identical user queries alongside full tool calling over SQLite inventory, date reminders, portion validation, and food knowledge tools.
+\end{itemize}
+Both methods will be scored on \textit{Recipe Feasibility Rate} (proportion of recommended recipes satisfying stock and user constraints) and \textit{Inventory Matching Rate} (proportion of required ingredients satisfied by available stock), while \textit{Reminder Accuracy} validates Food Guardian's deterministic calendar-date rules. Remaining engineering tasks additionally include live execution and human groundedness auditing of RAG cases \texttt{MUL-02} and \texttt{MUL-04}, cross-module UI/analytics integration testing with mixed units and zero-denominator guards, and longer-term field observation to assess actual waste reduction.
+
+% ==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ==============================================================================
+
+We presented \textit{Food Guardian}, a hybrid AI agent system that bridges household food inventory tracking, conservative safety pre-screening, deterministic serving-scaled meal recommendation, source-attributed preservation knowledge, and unit-consistent waste analytics. By delegating arithmetic, unit compatibility, and rule-based safety filtering to Python services over transactional SQLite records while reserving natural language parsing and tool orchestration for Gemini and LangGraph, the system produces auditable recommendations with explicit shortage reporting. Preliminary verification confirms 40 passing unit tests, 25/30 passing offline evaluation cases, and 3/3 valid tool traces on an initial Gemini Live multi-tool subset. Explicit system boundaries remain: the current prototype targets single-household manual entry without computer vision or IoT temperature sensing, and live RAG groundedness, paired baseline LLM comparisons, and longitudinal waste-reduction trials remain active next steps under the OpenSpec acceptance framework.
+
+% ==============================================================================
+\begin{thebibliography}{00}
+% ==============================================================================
+
+\bibitem{ref1} United Nations Environment Programme (UNEP), \textit{Food Waste Index Report 2024}. Nairobi, Kenya: United Nations Environment Programme, 2024. [Online]. Available: \url{https://www.unep.org/resources/report/food-waste-index-report-2024}
+
+\bibitem{ref2} U.S. Food and Drug Administration (FDA), ``How to Cut Food Waste and Maintain Food Safety.'' [Online]. Available: \url{https://www.fda.gov/food/consumers/how-cut-food-waste-and-maintain-food-safety}
+
+\bibitem{ref3} D. Kubatbek kyzy and B. Shambetova, ``MealMind: An AI Framework for Reducing Household Food Waste and Decision Fatigue Through Automated Inventory Management,'' \textit{Preprints.org}, 2025, doi: 10.20944/preprints202512.2579.v1.
+
+\bibitem{ref4} F. Mohbat and M. J. Zaki, ``KERL: Knowledge-Enhanced Personalized Recipe Recommendation using Large Language Models,'' in \textit{Proc. 63rd Annu. Meeting Assoc. Comput. Linguistics (ACL)}, 2025, pp. 19125--19141, doi: 10.18653/v1/2025.acl-long.938.
+
+\bibitem{ref5} A. Bagozi, D. Bianchini, M. Garda, M. Melchiori, and A. Rula, ``Ontology-enhanced RAG for a personalised and sustainable food advisory system,'' \textit{Data \& Knowledge Engineering}, vol. 164, Art. no. 102579, 2026, doi: 10.1016/j.datak.2026.102579.
+
+\bibitem{ref6} D. Kurniawan, P. A. Suri, and S. M. Isa, ``Application of AI for Recipe Recommendations Using Images of Food Ingredients,'' \textit{Procedia Computer Science}, vol. 289, pp. 1162--1170, 2026, doi: 10.1016/j.procs.2026.08.336.
+
+\bibitem{ref7} M. A. van Rooijen, J. C. Gerdessen, G. D. H. Claassen, and S. L. J. M. de Leeuw, ``Meal planning under uncertainty: How shopping frequency affects food waste,'' \textit{Sustainable Production and Consumption}, vol. 57, pp. 403--412, 2025, doi: 10.1016/j.spc.2025.05.015.
+
+\bibitem{ref8} B. R. Llagas, E. L. Jenkins, L. Brennan, L. Parker, B. Schivinski, and S. Lockrey, ``Consumer perceptions of date labelling and storage advice and its relationship with food waste: A systematic scoping review of the academic \& grey literature,'' \textit{Future Foods}, vol. 11, Art. no. 100577, 2025, doi: 10.1016/j.fufo.2025.100577.
+
+\bibitem{ref9} D. Cliceri, M. Pedrotti, F. Gasperi, and I. Endrizzi, ``European consumers' involvement with date labels and implications for household food waste,'' \textit{Food Quality and Preference}, vol. 129, Art. no. 105522, 2025, doi: 10.1016/j.foodqual.2025.105522.
+
+\bibitem{ref10} Widayat, E. Handayanto, A. D. Irfani, and I. Masudin, ``A systematic literature review and future research agenda on the dynamics of food waste in the context of consumer behavior,'' \textit{Sustainable Futures}, vol. 9, Art. no. 100491, 2025, doi: 10.1016/j.sftr.2025.100491.
+
+\bibitem{ref11} U.S. Department of Agriculture, Food Safety and Inspection Service (FSIS), ``Leftovers and Food Safety.'' [Online]. Available: \url{https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/leftovers-and-food-safety}
+
+\end{thebibliography}
+
+\end{document}
