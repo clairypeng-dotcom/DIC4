@@ -1,3 +1,8 @@
+<img width="499" height="190" alt="截圖 2026-11-25 上午11 27 23" src="https://github.com/user-attachments/assets/c3623948-eab8-49c8-8523-e47e1412366c" />
+
+<img width="555" height="197" alt="截圖 2026-11-25 上午11 33 09" src="https://github.com/user-attachments/assets/da5ea6a7-de19-4042-a6ba-afe1e3cd37be" />
+
+
 # DIC4 — Food Guardian ICEIB IEEE Conference Paper Workspace
 
 本儲存庫用於撰寫與維護 **Food Guardian** 計畫的 **ICEIB（IEEE International Conference on Electronic Communications, Internet of Things and Big Data）** IEEE 會議論文（依據 [iceib.asia](https://www.iceib.asia/) 規範：`IEEEtran` 雙欄會議格式、英文撰寫、4–8 頁），並整合原始專案設計文件與 OpenSpec 驗收規格。
